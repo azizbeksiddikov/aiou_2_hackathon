@@ -16,6 +16,18 @@ interface BleDevice {
   device: BluetoothDevice;
 }
 
+interface DeviceInfo {
+  services: string[];
+  batteryLevel?: number;
+  rssi?: number;
+  manufacturer?: string;
+  modelNumber?: string;
+  serialNumber?: string;
+  hardwareRevision?: string;
+  firmwareRevision?: string;
+  softwareRevision?: string;
+}
+
 type ConnectionStatus =
   | "idle"
   | "connecting"
@@ -31,6 +43,14 @@ export default function BleScanner() {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("idle");
   const [isSupported, setIsSupported] = useState(true);
+  const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
+  const [isLoadingInfo, setIsLoadingInfo] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Check if component is mounted (client-side)
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Check if Web Bluetooth is supported
   useEffect(() => {
@@ -50,6 +70,27 @@ export default function BleScanner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSupported]);
 
+  // Cleanup: Disconnect device on component unmount or page close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (selectedDevice?.device?.gatt?.connected) {
+        selectedDevice.device.gatt.disconnect();
+      }
+    };
+
+    // Add event listener for page close/refresh
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Cleanup function for component unmount
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      if (selectedDevice?.device?.gatt?.connected) {
+        console.log("Disconnecting device on component unmount...");
+        selectedDevice.device.gatt.disconnect();
+      }
+    };
+  }, [selectedDevice]);
+
   const scanForDevices = async () => {
     if (!navigator.bluetooth) {
       setError("Web Bluetooth API is not available");
@@ -61,11 +102,20 @@ export default function BleScanner() {
     setDevices([]);
 
     try {
-      // Request a Bluetooth device with no specific filters to see all available devices
-      // Note: In practice, you might want to add specific service filters
+      // Filter for devices starting with "piggybank"
       const device = await navigator.bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: ["battery_service", "device_information"], // Add more services as needed
+        filters: [{ namePrefix: "piggybank" }],
+        optionalServices: [
+          "battery_service",
+          "device_information",
+          "generic_access",
+          "generic_attribute",
+          // Add more standard services
+          "heart_rate",
+          "blood_pressure",
+          "cycling_speed_and_cadence",
+          "running_speed_and_cadence",
+        ],
       });
 
       if (device) {
@@ -102,10 +152,101 @@ export default function BleScanner() {
     }
   };
 
+  const readCharacteristic = async (
+    service: BluetoothRemoteGATTService,
+    characteristicUuid: string
+  ): Promise<string | null> => {
+    try {
+      const characteristic = await service.getCharacteristic(
+        characteristicUuid
+      );
+      const value = await characteristic.readValue();
+      const decoder = new TextDecoder("utf-8");
+      return decoder.decode(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const getDeviceInformation = async (
+    server: BluetoothRemoteGATTServer
+  ): Promise<DeviceInfo> => {
+    const info: DeviceInfo = {
+      services: [],
+    };
+
+    try {
+      // Get all available services
+      const services = await server.getPrimaryServices();
+      info.services = services.map((s) => s.uuid);
+
+      // Try to get battery level
+      try {
+        const batteryService = await server.getPrimaryService(
+          "battery_service"
+        );
+        const batteryLevel = await batteryService.getCharacteristic(
+          "battery_level"
+        );
+        const value = await batteryLevel.readValue();
+        info.batteryLevel = value.getUint8(0);
+      } catch (err) {
+        console.log("Battery service not available:", err);
+      }
+
+      // Try to get device information
+      try {
+        const deviceInfoService = await server.getPrimaryService(
+          "device_information"
+        );
+
+        info.manufacturer =
+          (await readCharacteristic(
+            deviceInfoService,
+            "manufacturer_name_string"
+          )) || undefined;
+        info.modelNumber =
+          (await readCharacteristic(
+            deviceInfoService,
+            "model_number_string"
+          )) || undefined;
+        info.serialNumber =
+          (await readCharacteristic(
+            deviceInfoService,
+            "serial_number_string"
+          )) || undefined;
+        info.hardwareRevision =
+          (await readCharacteristic(
+            deviceInfoService,
+            "hardware_revision_string"
+          )) || undefined;
+        info.firmwareRevision =
+          (await readCharacteristic(
+            deviceInfoService,
+            "firmware_revision_string"
+          )) || undefined;
+        info.softwareRevision =
+          (await readCharacteristic(
+            deviceInfoService,
+            "software_revision_string"
+          )) || undefined;
+      } catch (err) {
+        console.log("Device information service not available:", err);
+      }
+    } catch (err) {
+      console.error("Error getting device information:", err);
+      // If we can't get device info but are still connected, don't disconnect
+    }
+
+    return info;
+  };
+
   const connectToDevice = async (bleDevice: BleDevice) => {
     setConnectionStatus("connecting");
     setError(null);
     setSelectedDevice(bleDevice);
+    setDeviceInfo(null);
+    setIsLoadingInfo(true);
 
     try {
       const server = await bleDevice.device.gatt?.connect();
@@ -114,24 +255,52 @@ export default function BleScanner() {
         setConnectionStatus("connected");
 
         // Set up disconnect handler
-        bleDevice.device.addEventListener("gattserverdisconnected", () => {
+        const handleDisconnect = () => {
+          console.log("Device disconnected");
           setConnectionStatus("disconnected");
-          setError("Device disconnected");
-        });
+          setError("Device disconnected. Click 'Connect' to reconnect.");
+          setDeviceInfo(null);
+          setSelectedDevice(null);
+        };
 
-        // Optional: Get device information or services
-        try {
-          const services = await server.getPrimaryServices();
-          console.log("Available services:", services);
-        } catch (err) {
-          console.log("Could not retrieve services:", err);
-        }
+        bleDevice.device.addEventListener(
+          "gattserverdisconnected",
+          handleDisconnect
+        );
+
+        // Get detailed device information
+        const info = await getDeviceInformation(server);
+        setDeviceInfo(info);
+        setIsLoadingInfo(false);
+
+        console.log("Device connected:", {
+          name: bleDevice.name,
+          id: bleDevice.id,
+          info,
+        });
       } else {
         setConnectionStatus("failed");
         setError("Failed to establish GATT connection");
+        setIsLoadingInfo(false);
+        // Disconnect on failure
+        if (bleDevice.device.gatt?.connected) {
+          bleDevice.device.gatt.disconnect();
+        }
       }
     } catch (err) {
       setConnectionStatus("failed");
+      setIsLoadingInfo(false);
+
+      // Attempt to disconnect on error
+      if (bleDevice.device.gatt?.connected) {
+        try {
+          bleDevice.device.gatt.disconnect();
+          console.log("Disconnected device after connection error");
+        } catch (disconnectErr) {
+          console.error("Failed to disconnect after error:", disconnectErr);
+        }
+      }
+
       if (err instanceof Error) {
         setError(`Connection failed: ${err.message}`);
       } else {
@@ -142,9 +311,12 @@ export default function BleScanner() {
 
   const disconnectFromDevice = () => {
     if (selectedDevice?.device?.gatt?.connected) {
+      console.log("Manually disconnecting device:", selectedDevice.name);
       selectedDevice.device.gatt.disconnect();
       setConnectionStatus("disconnected");
       setSelectedDevice(null);
+      setDeviceInfo(null);
+      setError(null);
     }
   };
 
@@ -169,9 +341,9 @@ export default function BleScanner() {
       {/* Scanner Card */}
       <Card>
         <CardHeader>
-          <CardTitle>Bluetooth LE Device Scanner</CardTitle>
+          <CardTitle>Piggybank Device Scanner</CardTitle>
           <CardDescription>
-            Scan for nearby Bluetooth Low Energy devices and connect to them
+            Scan for nearby Piggybank Bluetooth devices and connect to them
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -205,7 +377,7 @@ export default function BleScanner() {
                 Scanning...
               </>
             ) : (
-              "Scan for Devices"
+              "Scan for Piggybank Devices"
             )}
           </Button>
 
@@ -221,6 +393,188 @@ export default function BleScanner() {
             <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-sm">
               Successfully connected to {selectedDevice.name}!
             </div>
+          )}
+
+          {/* Device Information Card */}
+          {connectionStatus === "connected" && selectedDevice && (
+            <Card className="border-green-200 dark:border-green-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+                  Device Information
+                </CardTitle>
+                <CardDescription>
+                  Detailed information about {selectedDevice.name}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isLoadingInfo ? (
+                  <div className="flex items-center justify-center py-8">
+                    <svg
+                      className="animate-spin h-8 w-8 text-muted-foreground"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                  </div>
+                ) : deviceInfo ? (
+                  <div className="space-y-3 text-sm">
+                    {/* Basic Info */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-muted-foreground text-xs">
+                          Device Name
+                        </p>
+                        <p className="font-medium">{selectedDevice.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground text-xs">
+                          Device ID
+                        </p>
+                        <p className="font-mono text-xs truncate">
+                          {selectedDevice.id}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Battery Level */}
+                    {deviceInfo.batteryLevel !== undefined && (
+                      <div>
+                        <p className="text-muted-foreground text-xs mb-1">
+                          Battery Level
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${
+                                deviceInfo.batteryLevel > 50
+                                  ? "bg-green-500"
+                                  : deviceInfo.batteryLevel > 20
+                                  ? "bg-yellow-500"
+                                  : "bg-red-500"
+                              }`}
+                              style={{ width: `${deviceInfo.batteryLevel}%` }}
+                            ></div>
+                          </div>
+                          <span className="font-medium">
+                            {deviceInfo.batteryLevel}%
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Device Details */}
+                    {(deviceInfo.manufacturer ||
+                      deviceInfo.modelNumber ||
+                      deviceInfo.serialNumber ||
+                      deviceInfo.hardwareRevision ||
+                      deviceInfo.firmwareRevision ||
+                      deviceInfo.softwareRevision) && (
+                      <div className="space-y-2 pt-2 border-t">
+                        <p className="font-medium text-xs">Device Details</p>
+                        <div className="grid gap-2">
+                          {deviceInfo.manufacturer && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Manufacturer:
+                              </span>
+                              <span className="font-medium">
+                                {deviceInfo.manufacturer}
+                              </span>
+                            </div>
+                          )}
+                          {deviceInfo.modelNumber && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Model:
+                              </span>
+                              <span className="font-medium">
+                                {deviceInfo.modelNumber}
+                              </span>
+                            </div>
+                          )}
+                          {deviceInfo.serialNumber && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Serial Number:
+                              </span>
+                              <span className="font-mono text-xs">
+                                {deviceInfo.serialNumber}
+                              </span>
+                            </div>
+                          )}
+                          {deviceInfo.hardwareRevision && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Hardware:
+                              </span>
+                              <span className="font-medium">
+                                {deviceInfo.hardwareRevision}
+                              </span>
+                            </div>
+                          )}
+                          {deviceInfo.firmwareRevision && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Firmware:
+                              </span>
+                              <span className="font-medium">
+                                {deviceInfo.firmwareRevision}
+                              </span>
+                            </div>
+                          )}
+                          {deviceInfo.softwareRevision && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">
+                                Software:
+                              </span>
+                              <span className="font-medium">
+                                {deviceInfo.softwareRevision}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Services */}
+                    <div className="pt-2 border-t">
+                      <p className="font-medium text-xs mb-2">
+                        Available Services ({deviceInfo.services.length})
+                      </p>
+                      <div className="max-h-32 overflow-y-auto space-y-1">
+                        {deviceInfo.services.map((service, index) => (
+                          <div
+                            key={index}
+                            className="text-xs font-mono bg-muted px-2 py-1 rounded"
+                          >
+                            {service}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No additional information available
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Devices List */}
@@ -318,9 +672,10 @@ export default function BleScanner() {
                   d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
                 />
               </svg>
-              <p>
-                No devices found. Click &quot;Scan for Devices&quot; to start
-                searching.
+              <p className="mb-2">No piggybank devices found.</p>
+              <p className="text-xs">
+                Click &quot;Scan for Piggybank Devices&quot; to search for
+                devices starting with &quot;piggybank&quot;
               </p>
             </div>
           )}
@@ -342,6 +697,10 @@ export default function BleScanner() {
               <li>This page must be served over HTTPS (or localhost)</li>
               <li>Your browser must support Web Bluetooth API</li>
               <li>You must grant Bluetooth permission when prompted</li>
+              <li>
+                Device name must start with &quot;piggybank&quot; (e.g.,
+                piggybank1, piggybank2)
+              </li>
             </ul>
           </div>
 
@@ -364,23 +723,21 @@ export default function BleScanner() {
             </ol>
           </div>
 
-          <div>
-            <p className="font-medium text-foreground mb-2">Current URL:</p>
-            <code className="text-xs bg-muted px-2 py-1 rounded">
-              {typeof window !== "undefined"
-                ? window.location.href
-                : "Loading..."}
-            </code>
-            <p className="mt-1 text-xs">
-              {typeof window !== "undefined" &&
-              window.location.protocol === "https:"
-                ? "✅ HTTPS - Bluetooth should work"
-                : typeof window !== "undefined" &&
-                  window.location.hostname === "localhost"
-                ? "✅ Localhost - Bluetooth should work"
-                : "⚠️ Not HTTPS - Bluetooth may not work"}
-            </p>
-          </div>
+          {isMounted && (
+            <div>
+              <p className="font-medium text-foreground mb-2">Current URL:</p>
+              <code className="text-xs bg-muted px-2 py-1 rounded break-all">
+                {window.location.href}
+              </code>
+              <p className="mt-1 text-xs">
+                {window.location.protocol === "https:"
+                  ? "✅ HTTPS - Bluetooth should work"
+                  : window.location.hostname === "localhost"
+                  ? "✅ Localhost - Bluetooth should work"
+                  : "⚠️ Not HTTPS - Bluetooth may not work"}
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

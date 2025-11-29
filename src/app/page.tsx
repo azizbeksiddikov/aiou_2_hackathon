@@ -6,10 +6,10 @@ export default function Home() {
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold tracking-tight text-gray-900 dark:text-white mb-4">
-            Bluetooth LE Scanner
+            Piggybank Device Manager
           </h1>
           <p className="text-lg text-gray-600 dark:text-gray-400">
-            Discover and connect to nearby Bluetooth Low Energy devices
+            Discover and connect to Piggybank Bluetooth devices
           </p>
         </div>
         <BleScanner />

@@ -85,4 +85,3 @@ interface Bluetooth extends EventTarget {
 interface Navigator {
   bluetooth?: Bluetooth;
 }
-
