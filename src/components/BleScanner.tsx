@@ -507,7 +507,7 @@ export default function BleScanner() {
 
           {/* Action Buttons */}
           {connectionStatus === "connected" && selectedDevice && deviceInfo && (
-            <div className="backdrop-blur-xl bg-white/40 dark:bg-gray-900/40 border border-white/20 dark:border-gray-700/20 rounded-3xl p-6 shadow-2xl">
+            <div className="backdrop-blur-xl bg-white/40 dark:bg-gray-900/40 border border-white/20 dark:border-gray-700/20 rounded-3xl p-6 shadow-2xl transform-gpu will-change-auto">
               <div className="space-y-4">
                 {deviceInfo.allCharacteristics.length > 0 ? (
                   <>
@@ -570,91 +570,88 @@ export default function BleScanner() {
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
+                              e.stopPropagation();
                               sendDataToDevice("1");
                             }}
                             disabled={isSending}
-                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95 text-left"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-opacity duration-200 text-left transform-gpu backface-hidden"
                           >
                             <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            {isSending ? (
-                              <svg
-                                className="animate-spin h-6 w-6"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                ></circle>
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                              </svg>
-                            ) : (
-                              <div className="relative z-10">
-                                <div className="text-3xl mb-2">💰</div>
-                                <div className="text-sm">+ 10&apos;000 KRW</div>
-                              </div>
-                            )}
+                            <div className="relative z-10 min-h-[80px] flex flex-col justify-center">
+                              {isSending ? (
+                                <svg
+                                  className="animate-spin h-6 w-6"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  ></circle>
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  ></path>
+                                </svg>
+                              ) : (
+                                <>
+                                  <div className="text-3xl mb-2">💰</div>
+                                  <div className="text-sm">
+                                    + 10&apos;000 KRW
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </button>
 
                           <button
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
+                              e.stopPropagation();
                               sendDataToDevice("0");
                             }}
                             disabled={isSending}
-                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95 text-left"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-opacity duration-200 text-left transform-gpu backface-hidden"
                           >
                             <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            {isSending ? (
-                              <svg
-                                className="animate-spin h-6 w-6"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                ></circle>
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                              </svg>
-                            ) : (
-                              <div className="relative z-10">
-                                <div className="text-3xl mb-2">💸</div>
-                                <div className="text-sm">Mom</div>
-                              </div>
-                            )}
+                            <div className="relative z-10 min-h-[80px] flex flex-col justify-center">
+                              {isSending ? (
+                                <svg
+                                  className="animate-spin h-6 w-6"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <circle
+                                    className="opacity-25"
+                                    cx="12"
+                                    cy="12"
+                                    r="10"
+                                    stroke="currentColor"
+                                    strokeWidth="4"
+                                  ></circle>
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  ></path>
+                                </svg>
+                              ) : (
+                                <>
+                                  <div className="text-3xl mb-2">💸</div>
+                                  <div className="text-sm">Mom</div>
+                                </>
+                              )}
+                            </div>
                           </button>
                         </div>
-                        {sendStatus && (
-                          <div
-                            className={`p-3 rounded-2xl text-sm font-medium text-center ${
-                              sendStatus.startsWith("✅")
-                                ? "backdrop-blur-lg bg-green-500/20 border border-green-300/30 text-green-600 dark:text-green-400"
-                                : "backdrop-blur-lg bg-red-500/20 border border-red-300/30 text-red-600 dark:text-red-400"
-                            }`}
-                          >
-                            {sendStatus}
-                          </div>
-                        )}
                       </>
                     )}
                   </>
@@ -669,6 +666,19 @@ export default function BleScanner() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Status Message - Separate at bottom */}
+          {sendStatus && (
+            <div
+              className={`backdrop-blur-xl p-4 rounded-2xl text-sm font-semibold text-center shadow-lg ${
+                sendStatus.startsWith("✅")
+                  ? "bg-green-500/20 border border-green-300/30 text-green-600 dark:text-green-400"
+                  : "bg-red-500/20 border border-red-300/30 text-red-600 dark:text-red-400"
+              }`}
+            >
+              {sendStatus}
             </div>
           )}
 
