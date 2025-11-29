@@ -16,6 +16,18 @@ interface BleDevice {
   device: BluetoothDevice;
 }
 
+interface CharacteristicInfo {
+  uuid: string;
+  serviceUuid: string;
+  properties: {
+    read: boolean;
+    write: boolean;
+    writeWithoutResponse: boolean;
+    notify: boolean;
+  };
+  characteristic: BluetoothRemoteGATTCharacteristic;
+}
+
 interface DeviceInfo {
   services: string[];
   batteryLevel?: number;
@@ -26,6 +38,7 @@ interface DeviceInfo {
   hardwareRevision?: string;
   firmwareRevision?: string;
   softwareRevision?: string;
+  allCharacteristics: CharacteristicInfo[];
 }
 
 type ConnectionStatus =
@@ -46,6 +59,10 @@ export default function BleScanner() {
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [selectedCharacteristic, setSelectedCharacteristic] =
+    useState<BluetoothRemoteGATTCharacteristic | null>(null);
 
   // Check if component is mounted (client-side)
   useEffect(() => {
@@ -110,11 +127,8 @@ export default function BleScanner() {
           "device_information",
           "generic_access",
           "generic_attribute",
-          // Add more standard services
-          "heart_rate",
-          "blood_pressure",
-          "cycling_speed_and_cadence",
-          "running_speed_and_cadence",
+          // Nordic UART Service (common for custom devices)
+          "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
         ],
       });
 
@@ -168,17 +182,84 @@ export default function BleScanner() {
     }
   };
 
+  const getAllCharacteristics = async (
+    server: BluetoothRemoteGATTServer
+  ): Promise<CharacteristicInfo[]> => {
+    const allChars: CharacteristicInfo[] = [];
+
+    try {
+      const services = await server.getPrimaryServices();
+      console.log(`Found ${services.length} services`);
+
+      for (const service of services) {
+        try {
+          const characteristics = await service.getCharacteristics();
+          console.log(
+            `Service ${service.uuid} has ${characteristics.length} characteristics`
+          );
+
+          for (const characteristic of characteristics) {
+            const info: CharacteristicInfo = {
+              uuid: characteristic.uuid,
+              serviceUuid: service.uuid,
+              properties: {
+                read: characteristic.properties.read,
+                write: characteristic.properties.write,
+                writeWithoutResponse:
+                  characteristic.properties.writeWithoutResponse,
+                notify: characteristic.properties.notify,
+              },
+              characteristic: characteristic,
+            };
+
+            allChars.push(info);
+
+            console.log(`Characteristic ${characteristic.uuid}:`, {
+              read: characteristic.properties.read,
+              write: characteristic.properties.write,
+              writeWithoutResponse:
+                characteristic.properties.writeWithoutResponse,
+              notify: characteristic.properties.notify,
+            });
+          }
+        } catch (err) {
+          console.log(
+            "Could not get characteristics for service:",
+            service.uuid,
+            err
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Error getting characteristics:", err);
+    }
+
+    return allChars;
+  };
+
   const getDeviceInformation = async (
     server: BluetoothRemoteGATTServer
   ): Promise<DeviceInfo> => {
     const info: DeviceInfo = {
       services: [],
+      allCharacteristics: [],
     };
 
     try {
       // Get all available services
       const services = await server.getPrimaryServices();
       info.services = services.map((s) => s.uuid);
+
+      // Get all characteristics
+      info.allCharacteristics = await getAllCharacteristics(server);
+
+      // Auto-select first writable characteristic if any
+      const writableChar = info.allCharacteristics.find(
+        (c) => c.properties.write || c.properties.writeWithoutResponse
+      );
+      if (writableChar) {
+        setSelectedCharacteristic(writableChar.characteristic);
+      }
 
       // Try to get battery level
       try {
@@ -317,6 +398,47 @@ export default function BleScanner() {
       setSelectedDevice(null);
       setDeviceInfo(null);
       setError(null);
+      setSendStatus(null);
+    }
+  };
+
+  const sendDataToDevice = async (value: string) => {
+    if (!selectedCharacteristic) {
+      setSendStatus("❌ No characteristic selected");
+      setTimeout(() => setSendStatus(null), 3000);
+      return;
+    }
+
+    setIsSending(true);
+    setSendStatus(null);
+
+    try {
+      // Convert string to Uint8Array
+      const encoder = new TextEncoder();
+      const data = encoder.encode(value);
+
+      console.log(
+        `Attempting to send "${value}" (${data.length} bytes) to characteristic ${selectedCharacteristic.uuid}`
+      );
+
+      // Write to the characteristic
+      await selectedCharacteristic.writeValue(data);
+      console.log(`Successfully sent "${value}" to device`);
+
+      setSendStatus(`✅ Sent: ${value}`);
+
+      // Clear status after 3 seconds
+      setTimeout(() => setSendStatus(null), 3000);
+    } catch (err) {
+      console.error("Error sending data:", err);
+      if (err instanceof Error) {
+        setSendStatus(`❌ Error: ${err.message}`);
+      } else {
+        setSendStatus("❌ Failed to send data");
+      }
+      setTimeout(() => setSendStatus(null), 5000);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -572,6 +694,173 @@ export default function BleScanner() {
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No additional information available
                   </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Send Data Card */}
+          {connectionStatus === "connected" && selectedDevice && deviceInfo && (
+            <Card className="border-blue-200 dark:border-blue-800">
+              <CardHeader>
+                <CardTitle className="text-base">Send Data</CardTitle>
+                <CardDescription>
+                  Send commands to {selectedDevice.name}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {deviceInfo.allCharacteristics.length > 0 ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium mb-2 block">
+                        Select Characteristic (
+                        {deviceInfo.allCharacteristics.length} available)
+                      </label>
+                      <select
+                        className="w-full p-2 text-xs border rounded bg-background"
+                        value={selectedCharacteristic?.uuid || ""}
+                        onChange={(e) => {
+                          const char = deviceInfo.allCharacteristics.find(
+                            (c) => c.uuid === e.target.value
+                          );
+                          setSelectedCharacteristic(
+                            char?.characteristic || null
+                          );
+                        }}
+                      >
+                        {deviceInfo.allCharacteristics.map((char) => (
+                          <option key={char.uuid} value={char.uuid}>
+                            {char.uuid.slice(0, 8)}... (
+                            {char.properties.write && "W"}
+                            {char.properties.writeWithoutResponse && "Wr"}
+                            {char.properties.read && "R"}
+                            {char.properties.notify && "N"})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedCharacteristic && (
+                      <>
+                        <div className="flex gap-3">
+                          <Button
+                            onClick={() => sendDataToDevice("1")}
+                            disabled={isSending}
+                            variant="default"
+                            className="flex-1"
+                            size="lg"
+                          >
+                            {isSending ? (
+                              <svg
+                                className="animate-spin h-4 w-4"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                            ) : (
+                              <>
+                                <span className="text-2xl font-bold">1</span>
+                                <span className="ml-2">Send 1</span>
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            onClick={() => sendDataToDevice("0")}
+                            disabled={isSending}
+                            variant="outline"
+                            className="flex-1"
+                            size="lg"
+                          >
+                            {isSending ? (
+                              <svg
+                                className="animate-spin h-4 w-4"
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                ></circle>
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                ></path>
+                              </svg>
+                            ) : (
+                              <>
+                                <span className="text-2xl font-bold">0</span>
+                                <span className="ml-2">Send 0</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        {sendStatus && (
+                          <div
+                            className={`p-3 rounded-lg text-sm font-medium text-center ${
+                              sendStatus.startsWith("✅")
+                                ? "bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400"
+                                : "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                            }`}
+                          >
+                            {sendStatus}
+                          </div>
+                        )}
+
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          <p>📡 Selected Characteristic:</p>
+                          <code className="text-xs bg-muted px-2 py-1 rounded block break-all">
+                            {selectedCharacteristic.uuid}
+                          </code>
+                          <p className="text-xs pt-1">
+                            Properties:
+                            {deviceInfo.allCharacteristics.find(
+                              (c) => c.uuid === selectedCharacteristic.uuid
+                            )?.properties.write && " Write"}
+                            {deviceInfo.allCharacteristics.find(
+                              (c) => c.uuid === selectedCharacteristic.uuid
+                            )?.properties.writeWithoutResponse &&
+                              " WriteWithoutResponse"}
+                            {deviceInfo.allCharacteristics.find(
+                              (c) => c.uuid === selectedCharacteristic.uuid
+                            )?.properties.read && " Read"}
+                            {deviceInfo.allCharacteristics.find(
+                              (c) => c.uuid === selectedCharacteristic.uuid
+                            )?.properties.notify && " Notify"}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground">
+                      ⚠️ No characteristics found on this device
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Check the console for more details
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
