@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Button } from "./ui/button";
 
 interface BleDevice {
   id: string;
@@ -379,19 +378,6 @@ export default function BleScanner() {
     }
   };
 
-  const disconnectFromDevice = () => {
-    if (selectedDevice?.device?.gatt?.connected) {
-      console.log(`🔌 Manually disconnecting from: ${selectedDevice.name}`);
-      selectedDevice.device.gatt.disconnect();
-      setConnectionStatus("disconnected");
-      setSelectedDevice(null);
-      setDeviceInfo(null);
-      setError(null);
-      setSendStatus(null);
-      console.log("✅ Disconnected successfully");
-    }
-  };
-
   const sendDataToDevice = async (value: string) => {
     if (!selectedCharacteristic) {
       console.error("❌ No characteristic selected");
@@ -525,47 +511,74 @@ export default function BleScanner() {
               <div className="space-y-4">
                 {deviceInfo.allCharacteristics.length > 0 ? (
                   <>
-                    <div>
-                      <label className="text-xs font-medium mb-2 block">
-                        Select Characteristic (
-                        {deviceInfo.allCharacteristics.length} available)
-                      </label>
-                      <select
-                        className="w-full p-2 text-xs border rounded bg-background"
-                        value={selectedCharacteristic?.uuid || ""}
-                        onChange={(e) => {
-                          const char = deviceInfo.allCharacteristics.find(
-                            (c) => c.uuid === e.target.value
-                          );
-                          setSelectedCharacteristic(
-                            char?.characteristic || null
-                          );
-                        }}
-                      >
-                        {deviceInfo.allCharacteristics.map((char) => (
-                          <option key={char.uuid} value={char.uuid}>
-                            {char.uuid.slice(0, 8)}... (
-                            {char.properties.write && "W"}
-                            {char.properties.writeWithoutResponse && "Wr"}
-                            {char.properties.read && "R"}
-                            {char.properties.notify && "N"})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Advanced Options - Collapsed by default */}
+                    <details className="text-xs text-gray-500 dark:text-gray-400">
+                      <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 transition-colors mb-2">
+                        ⚙️ Advanced: Select Characteristic
+                      </summary>
+                      <div className="mt-2 p-3 backdrop-blur-lg bg-white/30 dark:bg-gray-800/30 rounded-xl">
+                        <label className="block font-medium mb-2 text-xs">
+                          Writable Characteristics (
+                          {
+                            deviceInfo.allCharacteristics.filter(
+                              (c) =>
+                                c.properties.write ||
+                                c.properties.writeWithoutResponse
+                            ).length
+                          }{" "}
+                          available)
+                        </label>
+                        <select
+                          className="w-full p-2 text-xs border border-gray-300 dark:border-gray-600 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm"
+                          value={selectedCharacteristic?.uuid || ""}
+                          onChange={(e) => {
+                            const char = deviceInfo.allCharacteristics.find(
+                              (c) => c.uuid === e.target.value
+                            );
+                            setSelectedCharacteristic(
+                              char?.characteristic || null
+                            );
+                          }}
+                        >
+                          {deviceInfo.allCharacteristics
+                            .filter(
+                              (char) =>
+                                char.properties.write ||
+                                char.properties.writeWithoutResponse
+                            )
+                            .map((char) => (
+                              <option key={char.uuid} value={char.uuid}>
+                                {char.uuid.slice(0, 8)}... (
+                                {char.properties.write && "W"}
+                                {char.properties.writeWithoutResponse && "Wr"}
+                                {char.properties.read && "R"}
+                                {char.properties.notify && "N"})
+                              </option>
+                            ))}
+                        </select>
+                        <p className="text-xs mt-2 text-gray-500">
+                          Currently using:{" "}
+                          {selectedCharacteristic?.uuid.slice(0, 13)}...
+                        </p>
+                      </div>
+                    </details>
 
                     {selectedCharacteristic && (
                       <>
                         <div className="grid grid-cols-2 gap-4">
                           <button
-                            onClick={() => sendDataToDevice("1")}
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              sendDataToDevice("1");
+                            }}
                             disabled={isSending}
-                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95 text-left"
                           >
                             <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                             {isSending ? (
                               <svg
-                                className="animate-spin h-6 w-6 mx-auto"
+                                className="animate-spin h-6 w-6"
                                 xmlns="http://www.w3.org/2000/svg"
                                 fill="none"
                                 viewBox="0 0 24 24"
@@ -593,14 +606,18 @@ export default function BleScanner() {
                           </button>
 
                           <button
-                            onClick={() => sendDataToDevice("0")}
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              sendDataToDevice("0");
+                            }}
                             disabled={isSending}
-                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95 text-left"
                           >
                             <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                             {isSending ? (
                               <svg
-                                className="animate-spin h-6 w-6 mx-auto"
+                                className="animate-spin h-6 w-6"
                                 xmlns="http://www.w3.org/2000/svg"
                                 fill="none"
                                 viewBox="0 0 24 24"
@@ -627,41 +644,17 @@ export default function BleScanner() {
                             )}
                           </button>
                         </div>
-
                         {sendStatus && (
                           <div
-                            className={`p-3 rounded-lg text-sm font-medium text-center ${
+                            className={`p-3 rounded-2xl text-sm font-medium text-center ${
                               sendStatus.startsWith("✅")
-                                ? "bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400"
-                                : "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400"
+                                ? "backdrop-blur-lg bg-green-500/20 border border-green-300/30 text-green-600 dark:text-green-400"
+                                : "backdrop-blur-lg bg-red-500/20 border border-red-300/30 text-red-600 dark:text-red-400"
                             }`}
                           >
                             {sendStatus}
                           </div>
                         )}
-
-                        <div className="text-xs text-muted-foreground space-y-1">
-                          <p>📡 Selected Characteristic:</p>
-                          <code className="text-xs bg-muted px-2 py-1 rounded block break-all">
-                            {selectedCharacteristic.uuid}
-                          </code>
-                          <p className="text-xs pt-1">
-                            Properties:
-                            {deviceInfo.allCharacteristics.find(
-                              (c) => c.uuid === selectedCharacteristic.uuid
-                            )?.properties.write && " Write"}
-                            {deviceInfo.allCharacteristics.find(
-                              (c) => c.uuid === selectedCharacteristic.uuid
-                            )?.properties.writeWithoutResponse &&
-                              " WriteWithoutResponse"}
-                            {deviceInfo.allCharacteristics.find(
-                              (c) => c.uuid === selectedCharacteristic.uuid
-                            )?.properties.read && " Read"}
-                            {deviceInfo.allCharacteristics.find(
-                              (c) => c.uuid === selectedCharacteristic.uuid
-                            )?.properties.notify && " Notify"}
-                          </p>
-                        </div>
                       </>
                     )}
                   </>
@@ -680,77 +673,61 @@ export default function BleScanner() {
           )}
 
           {/* Devices List */}
-          {devices.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-muted-foreground">
-                Available Devices ({devices.length})
+          {devices.length > 0 && connectionStatus !== "connected" && (
+            <div className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Available Devices
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {devices.map((device) => (
                   <div
                     key={device.id}
-                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                    className="backdrop-blur-lg bg-white/60 dark:bg-gray-800/60 border border-white/30 dark:border-gray-700/30 rounded-2xl p-4 shadow-lg"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {device.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        ID: {device.id}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      {selectedDevice?.id === device.id &&
-                      connectionStatus === "connected" ? (
-                        <>
-                          <span className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
-                            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-                            Connected
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-lg truncate text-gray-900 dark:text-white">
+                          {device.name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate font-mono mt-1">
+                          {device.id}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => connectToDevice(device)}
+                        disabled={connectionStatus === "connecting"}
+                        className="px-6 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-blue-500 to-pink-500 text-white hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 transition-all active:scale-95 shadow-md"
+                      >
+                        {selectedDevice?.id === device.id &&
+                        connectionStatus === "connecting" ? (
+                          <span className="flex items-center">
+                            <svg
+                              className="animate-spin -ml-1 mr-2 h-4 w-4"
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              ></circle>
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              ></path>
+                            </svg>
+                            Connecting...
                           </span>
-                          <Button
-                            onClick={disconnectFromDevice}
-                            size="sm"
-                            variant="outline"
-                          >
-                            Disconnect
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          onClick={() => connectToDevice(device)}
-                          disabled={connectionStatus === "connecting"}
-                          size="sm"
-                        >
-                          {selectedDevice?.id === device.id &&
-                          connectionStatus === "connecting" ? (
-                            <>
-                              <svg
-                                className="animate-spin -ml-1 mr-2 h-3 w-3"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                ></circle>
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                ></path>
-                              </svg>
-                              Connecting...
-                            </>
-                          ) : (
-                            "Connect"
-                          )}
-                        </Button>
-                      )}
+                        ) : (
+                          "Connect"
+                        )}
+                      </button>
                     </div>
                   </div>
                 ))}
