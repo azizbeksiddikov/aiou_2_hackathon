@@ -1,14 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 
 interface BleDevice {
   id: string;
@@ -57,17 +50,10 @@ export default function BleScanner() {
     useState<ConnectionStatus>("idle");
   const [isSupported, setIsSupported] = useState(true);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
-  const [isLoadingInfo, setIsLoadingInfo] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [selectedCharacteristic, setSelectedCharacteristic] =
     useState<BluetoothRemoteGATTCharacteristic | null>(null);
-
-  // Check if component is mounted (client-side)
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   // Check if Web Bluetooth is supported
   useEffect(() => {
@@ -78,14 +64,6 @@ export default function BleScanner() {
       );
     }
   }, []);
-
-  // Automatically scan for devices when component loads
-  useEffect(() => {
-    if (isSupported && devices.length === 0) {
-      scanForDevices();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSupported]);
 
   // Cleanup: Disconnect device on component unmount or page close
   useEffect(() => {
@@ -110,16 +88,18 @@ export default function BleScanner() {
 
   const scanForDevices = async () => {
     if (!navigator.bluetooth) {
+      console.error("❌ Web Bluetooth API is not available");
       setError("Web Bluetooth API is not available");
       return;
     }
 
+    console.log("🔍 Starting device scan...");
     setIsScanning(true);
     setError(null);
     setDevices([]);
 
     try {
-      // Filter for devices starting with "piggybank"
+      console.log("📡 Requesting Bluetooth device with filters: piggybank*");
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: "piggybank" }],
         optionalServices: [
@@ -133,6 +113,11 @@ export default function BleScanner() {
       });
 
       if (device) {
+        console.log("✅ Device found:", {
+          name: device.name,
+          id: device.id,
+        });
+
         const bleDevice: BleDevice = {
           id: device.id,
           name: device.name || "Unknown Device",
@@ -142,27 +127,32 @@ export default function BleScanner() {
         setDevices((prev) => {
           // Avoid duplicates
           if (prev.some((d) => d.id === bleDevice.id)) {
+            console.log("ℹ️ Device already in list");
             return prev;
           }
+          console.log("➕ Adding device to list");
           return [...prev, bleDevice];
         });
       }
     } catch (err) {
       if (err instanceof Error) {
+        console.error("❌ Scan error:", err.name, err.message);
         if (err.name === "NotFoundError") {
           setError("No device selected. Please try scanning again.");
         } else if (err.name === "SecurityError") {
           setError(
-            "Bluetooth access denied. Please check: (1) Bluetooth is enabled on your device, (2) You're on HTTPS or localhost, (3) Reset site permissions by clicking the lock icon in the address bar → Site settings → Bluetooth → Ask (default)."
+            "Bluetooth access denied. Enable Bluetooth and grant permission in browser settings."
           );
         } else {
           setError(`Error scanning for devices: ${err.message}`);
         }
       } else {
+        console.error("❌ Unknown scan error:", err);
         setError("An unknown error occurred while scanning");
       }
     } finally {
       setIsScanning(false);
+      console.log("🔍 Scan completed");
     }
   };
 
@@ -327,7 +317,6 @@ export default function BleScanner() {
     setError(null);
     setSelectedDevice(bleDevice);
     setDeviceInfo(null);
-    setIsLoadingInfo(true);
 
     try {
       const server = await bleDevice.device.gatt?.connect();
@@ -350,27 +339,27 @@ export default function BleScanner() {
         );
 
         // Get detailed device information
+        console.log("📋 Getting device information...");
         const info = await getDeviceInformation(server);
         setDeviceInfo(info);
-        setIsLoadingInfo(false);
 
-        console.log("Device connected:", {
+        console.log("✅ Device fully connected and ready:", {
           name: bleDevice.name,
           id: bleDevice.id,
           info,
         });
       } else {
+        console.error("❌ GATT connection failed");
         setConnectionStatus("failed");
         setError("Failed to establish GATT connection");
-        setIsLoadingInfo(false);
         // Disconnect on failure
         if (bleDevice.device.gatt?.connected) {
           bleDevice.device.gatt.disconnect();
         }
       }
     } catch (err) {
+      console.error("❌ Connection error:", err);
       setConnectionStatus("failed");
-      setIsLoadingInfo(false);
 
       // Attempt to disconnect on error
       if (bleDevice.device.gatt?.connected) {
@@ -392,22 +381,28 @@ export default function BleScanner() {
 
   const disconnectFromDevice = () => {
     if (selectedDevice?.device?.gatt?.connected) {
-      console.log("Manually disconnecting device:", selectedDevice.name);
+      console.log(`🔌 Manually disconnecting from: ${selectedDevice.name}`);
       selectedDevice.device.gatt.disconnect();
       setConnectionStatus("disconnected");
       setSelectedDevice(null);
       setDeviceInfo(null);
       setError(null);
       setSendStatus(null);
+      console.log("✅ Disconnected successfully");
     }
   };
 
   const sendDataToDevice = async (value: string) => {
     if (!selectedCharacteristic) {
+      console.error("❌ No characteristic selected");
       setSendStatus("❌ No characteristic selected");
       setTimeout(() => setSendStatus(null), 3000);
       return;
     }
+
+    console.log(`\n📤 ========== SENDING DATA ==========`);
+    console.log(`📝 Value to send: "${value}"`);
+    console.log(`🎯 Target characteristic: ${selectedCharacteristic.uuid}`);
 
     setIsSending(true);
     setSendStatus(null);
@@ -417,20 +412,26 @@ export default function BleScanner() {
       const encoder = new TextEncoder();
       const data = encoder.encode(value);
 
-      console.log(
-        `Attempting to send "${value}" (${data.length} bytes) to characteristic ${selectedCharacteristic.uuid}`
-      );
+      console.log(`💾 Encoded data:`, {
+        string: value,
+        bytes: Array.from(data),
+        length: data.length,
+      });
 
-      // Write to the characteristic
+      console.log(`⏳ Writing to characteristic...`);
       await selectedCharacteristic.writeValue(data);
-      console.log(`Successfully sent "${value}" to device`);
+
+      console.log(`✅ Data sent successfully!`);
+      console.log(`====================================\n`);
 
       setSendStatus(`✅ Sent: ${value}`);
 
       // Clear status after 3 seconds
       setTimeout(() => setSendStatus(null), 3000);
     } catch (err) {
-      console.error("Error sending data:", err);
+      console.error("❌ Error sending data:", err);
+      console.log(`====================================\n`);
+
       if (err instanceof Error) {
         setSendStatus(`❌ Error: ${err.message}`);
       } else {
@@ -444,40 +445,41 @@ export default function BleScanner() {
 
   if (!isSupported) {
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle className="text-destructive">
+      <div className="w-full max-w-md mx-auto px-4">
+        <div className="backdrop-blur-xl bg-red-500/10 border border-red-300/20 rounded-3xl p-6 shadow-2xl">
+          <h2 className="text-xl font-bold text-red-600 dark:text-red-400 mb-2">
             Bluetooth Not Supported
-          </CardTitle>
-          <CardDescription>
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Your browser doesn&apos;t support the Web Bluetooth API. Please use
             Chrome, Edge, or Opera on a device with Bluetooth support.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+          </p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-6">
+    <div className="w-full max-w-md mx-auto px-4 space-y-6">
       {/* Scanner Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Piggybank Device Scanner</CardTitle>
-          <CardDescription>
-            Scan for nearby Piggybank Bluetooth devices and connect to them
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button
+      <div className="backdrop-blur-xl bg-white/40 dark:bg-gray-900/40 border border-white/20 dark:border-gray-700/20 rounded-3xl p-6 shadow-2xl">
+        <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-pink-600 bg-clip-text text-transparent mb-2">
+          Piggybank Devices
+        </h2>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          Connect to your piggybank device
+        </p>
+
+        <div className="space-y-4">
+          <button
             onClick={scanForDevices}
             disabled={isScanning}
-            className="w-full"
+            className="w-full py-4 px-6 rounded-2xl font-semibold text-white bg-gradient-to-r from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg transition-all duration-200 active:scale-95"
           >
             {isScanning ? (
-              <>
+              <span className="flex items-center justify-center">
                 <svg
-                  className="animate-spin -ml-1 mr-2 h-4 w-4"
+                  className="animate-spin -ml-1 mr-3 h-5 w-5"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -497,218 +499,30 @@ export default function BleScanner() {
                   ></path>
                 </svg>
                 Scanning...
-              </>
+              </span>
             ) : (
-              "Scan for Piggybank Devices"
+              "🔍 Scan for Devices"
             )}
-          </Button>
+          </button>
 
           {/* Error Message */}
           {error && (
-            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+            <div className="backdrop-blur-lg bg-red-500/10 border border-red-300/30 rounded-2xl p-4 text-red-600 dark:text-red-400 text-sm">
               {error}
             </div>
           )}
 
           {/* Success Message */}
           {connectionStatus === "connected" && selectedDevice && (
-            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-sm">
-              Successfully connected to {selectedDevice.name}!
+            <div className="backdrop-blur-lg bg-green-500/10 border border-green-300/30 rounded-2xl p-4 text-green-600 dark:text-green-400 text-sm font-medium">
+              ✅ Connected to {selectedDevice.name}
             </div>
           )}
 
-          {/* Device Information Card */}
-          {connectionStatus === "connected" && selectedDevice && (
-            <Card className="border-green-200 dark:border-green-800">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-                  Device Information
-                </CardTitle>
-                <CardDescription>
-                  Detailed information about {selectedDevice.name}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isLoadingInfo ? (
-                  <div className="flex items-center justify-center py-8">
-                    <svg
-                      className="animate-spin h-8 w-8 text-muted-foreground"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                  </div>
-                ) : deviceInfo ? (
-                  <div className="space-y-3 text-sm">
-                    {/* Basic Info */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <p className="text-muted-foreground text-xs">
-                          Device Name
-                        </p>
-                        <p className="font-medium">{selectedDevice.name}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground text-xs">
-                          Device ID
-                        </p>
-                        <p className="font-mono text-xs truncate">
-                          {selectedDevice.id}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Battery Level */}
-                    {deviceInfo.batteryLevel !== undefined && (
-                      <div>
-                        <p className="text-muted-foreground text-xs mb-1">
-                          Battery Level
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full ${
-                                deviceInfo.batteryLevel > 50
-                                  ? "bg-green-500"
-                                  : deviceInfo.batteryLevel > 20
-                                  ? "bg-yellow-500"
-                                  : "bg-red-500"
-                              }`}
-                              style={{ width: `${deviceInfo.batteryLevel}%` }}
-                            ></div>
-                          </div>
-                          <span className="font-medium">
-                            {deviceInfo.batteryLevel}%
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Device Details */}
-                    {(deviceInfo.manufacturer ||
-                      deviceInfo.modelNumber ||
-                      deviceInfo.serialNumber ||
-                      deviceInfo.hardwareRevision ||
-                      deviceInfo.firmwareRevision ||
-                      deviceInfo.softwareRevision) && (
-                      <div className="space-y-2 pt-2 border-t">
-                        <p className="font-medium text-xs">Device Details</p>
-                        <div className="grid gap-2">
-                          {deviceInfo.manufacturer && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Manufacturer:
-                              </span>
-                              <span className="font-medium">
-                                {deviceInfo.manufacturer}
-                              </span>
-                            </div>
-                          )}
-                          {deviceInfo.modelNumber && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Model:
-                              </span>
-                              <span className="font-medium">
-                                {deviceInfo.modelNumber}
-                              </span>
-                            </div>
-                          )}
-                          {deviceInfo.serialNumber && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Serial Number:
-                              </span>
-                              <span className="font-mono text-xs">
-                                {deviceInfo.serialNumber}
-                              </span>
-                            </div>
-                          )}
-                          {deviceInfo.hardwareRevision && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Hardware:
-                              </span>
-                              <span className="font-medium">
-                                {deviceInfo.hardwareRevision}
-                              </span>
-                            </div>
-                          )}
-                          {deviceInfo.firmwareRevision && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Firmware:
-                              </span>
-                              <span className="font-medium">
-                                {deviceInfo.firmwareRevision}
-                              </span>
-                            </div>
-                          )}
-                          {deviceInfo.softwareRevision && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">
-                                Software:
-                              </span>
-                              <span className="font-medium">
-                                {deviceInfo.softwareRevision}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Services */}
-                    <div className="pt-2 border-t">
-                      <p className="font-medium text-xs mb-2">
-                        Available Services ({deviceInfo.services.length})
-                      </p>
-                      <div className="max-h-32 overflow-y-auto space-y-1">
-                        {deviceInfo.services.map((service, index) => (
-                          <div
-                            key={index}
-                            className="text-xs font-mono bg-muted px-2 py-1 rounded"
-                          >
-                            {service}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No additional information available
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Send Data Card */}
+          {/* Action Buttons */}
           {connectionStatus === "connected" && selectedDevice && deviceInfo && (
-            <Card className="border-blue-200 dark:border-blue-800">
-              <CardHeader>
-                <CardTitle className="text-base">Send Data</CardTitle>
-                <CardDescription>
-                  Send commands to {selectedDevice.name}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div className="backdrop-blur-xl bg-white/40 dark:bg-gray-900/40 border border-white/20 dark:border-gray-700/20 rounded-3xl p-6 shadow-2xl">
+              <div className="space-y-4">
                 {deviceInfo.allCharacteristics.length > 0 ? (
                   <>
                     <div>
@@ -742,17 +556,16 @@ export default function BleScanner() {
 
                     {selectedCharacteristic && (
                       <>
-                        <div className="flex gap-3">
-                          <Button
+                        <div className="grid grid-cols-2 gap-4">
+                          <button
                             onClick={() => sendDataToDevice("1")}
                             disabled={isSending}
-                            variant="default"
-                            className="flex-1"
-                            size="lg"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-blue-500 to-pink-500 hover:from-blue-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95"
                           >
+                            <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                             {isSending ? (
                               <svg
-                                className="animate-spin h-4 w-4"
+                                className="animate-spin h-6 w-6 mx-auto"
                                 xmlns="http://www.w3.org/2000/svg"
                                 fill="none"
                                 viewBox="0 0 24 24"
@@ -772,22 +585,22 @@ export default function BleScanner() {
                                 ></path>
                               </svg>
                             ) : (
-                              <>
-                                <span className="text-2xl font-bold">1</span>
-                                <span className="ml-2">Send 1</span>
-                              </>
+                              <div className="relative z-10">
+                                <div className="text-3xl mb-2">💰</div>
+                                <div className="text-sm">+ 10&apos;000 KRW</div>
+                              </div>
                             )}
-                          </Button>
-                          <Button
+                          </button>
+
+                          <button
                             onClick={() => sendDataToDevice("0")}
                             disabled={isSending}
-                            variant="outline"
-                            className="flex-1"
-                            size="lg"
+                            className="group relative overflow-hidden py-8 px-6 rounded-2xl font-bold text-white bg-gradient-to-br from-pink-500 to-blue-500 hover:from-pink-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl transition-all duration-200 active:scale-95"
                           >
+                            <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                             {isSending ? (
                               <svg
-                                className="animate-spin h-4 w-4"
+                                className="animate-spin h-6 w-6 mx-auto"
                                 xmlns="http://www.w3.org/2000/svg"
                                 fill="none"
                                 viewBox="0 0 24 24"
@@ -807,12 +620,12 @@ export default function BleScanner() {
                                 ></path>
                               </svg>
                             ) : (
-                              <>
-                                <span className="text-2xl font-bold">0</span>
-                                <span className="ml-2">Send 0</span>
-                              </>
+                              <div className="relative z-10">
+                                <div className="text-3xl mb-2">💸</div>
+                                <div className="text-sm">Mom</div>
+                              </div>
                             )}
-                          </Button>
+                          </button>
                         </div>
 
                         {sendStatus && (
@@ -862,8 +675,8 @@ export default function BleScanner() {
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           )}
 
           {/* Devices List */}
@@ -968,67 +781,8 @@ export default function BleScanner() {
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Info Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            Requirements & Troubleshooting
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground space-y-4">
-          <div>
-            <p className="font-medium text-foreground mb-2">Requirements:</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>Bluetooth must be enabled on your device</li>
-              <li>This page must be served over HTTPS (or localhost)</li>
-              <li>Your browser must support Web Bluetooth API</li>
-              <li>You must grant Bluetooth permission when prompted</li>
-              <li>
-                Device name must start with &quot;piggybank&quot; (e.g.,
-                piggybank1, piggybank2)
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <p className="font-medium text-foreground mb-2">
-              If you see &quot;Bluetooth access denied&quot;:
-            </p>
-            <ol className="list-decimal list-inside space-y-1">
-              <li>
-                Click the lock/info icon in your browser&apos;s address bar
-              </li>
-              <li>
-                Go to &quot;Site settings&quot; or &quot;Permissions&quot;
-              </li>
-              <li>
-                Find &quot;Bluetooth&quot; and set it to &quot;Ask
-                (default)&quot;
-              </li>
-              <li>Reload the page and try scanning again</li>
-            </ol>
-          </div>
-
-          {isMounted && (
-            <div>
-              <p className="font-medium text-foreground mb-2">Current URL:</p>
-              <code className="text-xs bg-muted px-2 py-1 rounded break-all">
-                {window.location.href}
-              </code>
-              <p className="mt-1 text-xs">
-                {window.location.protocol === "https:"
-                  ? "✅ HTTPS - Bluetooth should work"
-                  : window.location.hostname === "localhost"
-                  ? "✅ Localhost - Bluetooth should work"
-                  : "⚠️ Not HTTPS - Bluetooth may not work"}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
